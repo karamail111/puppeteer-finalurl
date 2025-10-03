@@ -1,23 +1,19 @@
 import express from "express";
 import puppeteer from "puppeteer";
-import dotenv from "dotenv";
 
-dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
-
-app.post("/getFinalUrl", async (req, res) => {
-  const launchUrl = req.body.launchUrl;
+app.get("/final-url", async (req, res) => {
+  const launchUrl = req.query.launchUrl;
   if (!launchUrl) {
-    return res.status(400).json({ error: "Missing launchUrl" });
+    return res.status(400).json({ error: "Missing launchUrl parameter" });
   }
 
   let browser;
   try {
     browser = await puppeteer.launch({
-      headless: "new",
+      headless: true,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -27,27 +23,27 @@ app.post("/getFinalUrl", async (req, res) => {
     });
 
     const page = await browser.newPage();
-    await page.goto(launchUrl, {
-      waitUntil: "networkidle2",
-      timeout: 60000
-    });
+    await page.goto(launchUrl, { waitUntil: "networkidle2", timeout: 60000 });
 
-    // Get final URL after redirects
+    // ดึง URL สุดท้ายหลัง redirect
     const finalUrl = page.url();
 
     res.json({
       finalUrl,
-      original: launchUrl
+      time: new Date().toISOString()
     });
-
   } catch (err) {
-    console.error("❌ Error:", err.message);
+    console.error("Error:", err);
     res.status(500).json({ error: err.message });
   } finally {
     if (browser) await browser.close();
   }
 });
 
+app.get("/", (req, res) => {
+  res.send("✅ Puppeteer Final URL Service is running!");
+});
+
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
