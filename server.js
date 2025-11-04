@@ -13,11 +13,19 @@ async function launchBrowser() {
     slowMo: 150,              // ให้เห็น step ชัดๆ
     defaultViewport: null,    // เต็มจอ
     args: [
-      "--no-sandbox",
+      "--no-sandbox",                    // จำเป็นสำหรับ environment Railway
       "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--disable-popup-blocking",
+      "--disable-dev-shm-usage",         // ป้องกัน crash ใน memory จำกัด
+      "--disable-gpu",                   // ไม่มี GPU ใน container
+      "--disable-popup-blocking",        // อนุญาตให้ window.open() ทำงาน
+      "--enable-automation",
+      "--disable-blink-features=AutomationControlled", // ลดการ detect bot
+      "--window-size=1280,800",          // ให้ browser เริ่มขนาดเต็ม
+      "--start-maximized",
+      "--ignore-certificate-errors",     // ข้าม SSL warning
+      "--no-first-run",
+      "--no-zygote",
+      "--single-process",
     ],
   });
 }
