@@ -18,7 +18,6 @@ async function launchBrowser() {
       "--disable-dev-shm-usage",
       "--disable-gpu",
       "--disable-popup-blocking",
-      "--window-size=1280,800",
     ],
   });
 }
@@ -83,6 +82,8 @@ app.get("/getheader", async (req, res) => {
  */
 app.get("/clickgame", async (req, res) => {
   const requestUrl = req.query.request;
+  console.log("requestUrl =", requestUrl);
+
   if (!requestUrl) return res.status(400).json({ error: "Missing request param" });
 
   let browser;
@@ -90,86 +91,69 @@ app.get("/clickgame", async (req, res) => {
     browser = await launchBrowser();
     const page = await browser.newPage();
 
-    console.log("🟢 เปิดหน้าแรก:", requestUrl);
-    await page.goto(requestUrl, { waitUntil: "networkidle2", timeout: 15000 });
+    // โหลดหน้าเว็บ (timeout 7 วิ)
+    try {
+      await page.goto(requestUrl, { waitUntil: "networkidle2", timeout: 7000 });
+    } catch (e) {
+      console.error("Timeout loading page");
+      await browser.close();
+      return res.json({ success: false, reason: "Page load timeout > 7s" });
+    }
 
-    const selector = "img[src*='/image/gameIcon/PG/PG-SLOT-164.png']";
-    await page.waitForSelector(selector, { timeout: 10000 });
+    const selector = "img[src*='/image/gameIcon/PG/PG-SLOT-156.png']";
 
-    // เก็บแท็บก่อนคลิก
-    const beforeTargets = browser.targets().filter((t) => t.type() === "page");
-    console.log("📄 ก่อนคลิก มีแท็บทั้งหมด:", beforeTargets.length);
+    // รอ selector ถ้าไม่เจอใน 7 วิ → false
+    try {
+      await page.waitForSelector(selector, { timeout: 7000 });
+    } catch (e) {
+      console.error("Selector not found");
+      await browser.close();
+      return res.json({ success: false, reason: "Image not found" });
+    }
+
+    // ดัก event tab ใหม่
+    const newPagePromise = new Promise((resolve) =>
+      browser.once("targetcreated", async (target) => {
+        const newPage = await target.page();
+        resolve(newPage);
+      })
+    );
 
     // คลิก
     await page.click(selector);
-    console.log("🖱️ คลิกเรียบร้อย รอแท็บใหม่...");
 
-    // ✅ รอแท็บใหม่เกิดขึ้น
-    let allTargets = [];
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 1000));
-      allTargets = browser.targets().filter((t) => t.type() === "page");
-      const newCount = allTargets.length - beforeTargets.length;
-      console.log(`⏱️ [${i + 1}] มีแท็บทั้งหมด: ${allTargets.length} (+${newCount})`);
-      for (let [idx, t] of allTargets.entries()) {
-        try {
-          const p = await t.page();
-          console.log(`  └─ #${idx + 1} ${t._targetId} → ${await p.url()}`);
-        } catch {
-          console.log(`  └─ #${idx + 1} ${t._targetId} → (access denied)`);
-        }
-      }
-      if (allTargets.length > beforeTargets.length + 1) break;
+    // รอแท็บใหม่ (9 วิ)
+    let newPage;
+    try {
+      newPage = await Promise.race([
+        newPagePromise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("No new tab")), 9000)
+        ),
+      ]);
+    } catch (e) {
+      console.error("No new tab opened");
+      await browser.close();
+      return res.json({ success: false, reason: "No new tab opened" });
     }
 
-    // ✅ หาแท็บที่ "URL เปลี่ยนล่าสุด" จาก about:blank
-    const newTargets = allTargets.filter((t) => !beforeTargets.includes(t));
-    console.log("🆕 เจอแท็บใหม่ทั้งหมด:", newTargets.length);
+    // รอโหลดเล็กน้อยแล้วเอา URL
+    await newPage.bringToFront();
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    let finalPage = null;
-    let finalUrl = null;
+    const finalUrl = newPage.url();
+    console.log("finalUrl =", finalUrl);
 
-    for (const [idx, t] of newTargets.entries()) {
-      try {
-        const p = await t.page();
-        let currentUrl = p.url();
-        console.log(`🔎 ตรวจแท็บใหม่ #${idx + 1}: ${currentUrl}`);
-
-        // ถ้ายังเป็น about:blank → รอ redirect
-        if (currentUrl === "about:blank") {
-          for (let j = 0; j < 20; j++) {
-            await new Promise((r) => setTimeout(r, 500));
-            currentUrl = p.url();
-            if (currentUrl !== "about:blank" && currentUrl !== requestUrl) break;
-          }
-        }
-
-        console.log(`✅ แท็บ #${idx + 1} URL สุดท้าย: ${currentUrl}`);
-        if (currentUrl && currentUrl !== "about:blank" && currentUrl !== requestUrl) {
-          finalPage = p;
-          finalUrl = currentUrl;
-        }
-      } catch (err) {
-        console.log("❌ อ่านแท็บล้มเหลว:", err.message);
-      }
-    }
-
-    if (!finalUrl) {
-      finalUrl = await page.evaluate(() => window.location.href);
-      console.log("⚠️ ใช้ URL fallback:", finalUrl);
-    }
-
+    // ✅ ปิด browser หลังทำเสร็จ
     await browser.close();
-    console.log("🎯 Final URL =", finalUrl);
 
     return res.json({ success: true, clickedUrl: finalUrl });
   } catch (err) {
-    console.error("💥 Error:", err.message);
-    if (browser) await browser.close();
-    return res.status(500).json({ success: false, error: err.message });
+    console.error("Error on /clickgame:", err.message);
+    if (browser) await browser.close(); // ปิดทั้ง browser เวลา error
+    res.status(500).json({ success: false, error: err.message });
   }
 });
-
 
 
 app.listen(PORT, () => {
