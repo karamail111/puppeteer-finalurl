@@ -85,31 +85,66 @@ app.get("/clickgame", async (req, res) => {
     browser = await launchBrowser();
     const page = await browser.newPage();
 
-    await page.goto(requestUrl, { waitUntil: "networkidle2", timeout: 7000 });
+    // โหลดหน้าเว็บ (timeout 7 วิ)
+    try {
+      await page.goto(requestUrl, { waitUntil: "networkidle2", timeout: 7000 });
+    } catch (e) {
+      console.error("Timeout loading page");
+      await browser.close();
+      return res.json({ success: false, reason: "Page load timeout > 7s" });
+    }
 
     const selector = "img[src*='/image/gameIcon/PG/PG-SLOT-156.png']";
 
-    await page.waitForSelector(selector, { timeout: 7000 });
+    // รอ selector ถ้าไม่เจอใน 7 วิ → false
+    try {
+      await page.waitForSelector(selector, { timeout: 7000 });
+    } catch (e) {
+      console.error("Selector not found");
+      await browser.close();
+      return res.json({ success: false, reason: "Image not found" });
+    }
 
-    let finalUrl = null;
+    // ดัก event tab ใหม่
+    const newPagePromise = new Promise((resolve) =>
+      browser.once("targetcreated", async (target) => {
+        const newPage = await target.page();
+        resolve(newPage);
+      })
+    );
 
-    // ✅ ดักทุกการเปลี่ยนหน้าใน tab เดียว
-    page.on("framenavigated", (frame) => {
-      finalUrl = frame.url();
-    });
-
+    // คลิก
     await page.click(selector);
 
-    // รอให้เกิด navigation ภายใน 9 วิ
-    await page.waitForNavigation({ timeout: 9000 }).catch(() => {});
+    // รอแท็บใหม่ (9 วิ)
+    let newPage;
+    try {
+      newPage = await Promise.race([
+        newPagePromise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("No new tab")), 9000)
+        ),
+      ]);
+    } catch (e) {
+      console.error("No new tab opened");
+      await browser.close();
+      return res.json({ success: false, reason: "No new tab opened" });
+    }
 
-    // ถ้าไม่มี navigation จริง ก็คืน URL ปัจจุบัน
-    if (!finalUrl) finalUrl = page.url();
+    // รอโหลดเล็กน้อยแล้วเอา URL
+    await newPage.bringToFront();
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
+    const finalUrl = newPage.url();
+    console.log("finalUrl =", finalUrl);
+
+    // ✅ ปิด browser หลังทำเสร็จ
     await browser.close();
+
     return res.json({ success: true, clickedUrl: finalUrl });
   } catch (err) {
-    if (browser) await browser.close();
+    console.error("Error on /clickgame:", err.message);
+    if (browser) await browser.close(); // ปิดทั้ง browser เวลา error
     res.status(500).json({ success: false, error: err.message });
   }
 });
