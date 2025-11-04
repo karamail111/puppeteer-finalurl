@@ -95,32 +95,51 @@ app.get("/clickgame", async (req, res) => {
     await page.waitForSelector(selector, { timeout: 10000 });
 
     // เก็บแท็บก่อนคลิก
-    const targetsBefore = browser.targets().filter(t => t.type() === "page");
+    const beforeTargets = browser.targets().filter(t => t.type() === "page");
 
     // คลิก
     await page.click(selector);
 
-    // รอ popup เกิดและ redirect เสร็จ
-    let finalUrl = null;
-    for (let i = 0; i < 20; i++) {
-      await new Promise(r => setTimeout(r, 1000)); // รอทีละ 1 วิ
-      const targetsNow = browser.targets().filter(t => t.type() === "page");
-
-      const newOnes = targetsNow.filter(t => !targetsBefore.includes(t));
-      for (const t of newOnes) {
-        try {
-          const p = await t.page();
-          const url = await p.url();
-          if (url && url !== "about:blank" && url !== requestUrl) {
-            finalUrl = url;
-            break;
-          }
-        } catch {}
-      }
-      if (finalUrl) break;
+    // ✅ รอจนแท็บใหม่ทั้งหมดถูกสร้าง (2 หรือมากกว่า)
+    let allTargets = [];
+    for (let i = 0; i < 30; i++) {
+      allTargets = browser.targets().filter(t => t.type() === "page");
+      if (allTargets.length > beforeTargets.length + 1) break; // มีแท็บมากกว่า 1 ใหม่ขึ้นมา
+      await new Promise(r => setTimeout(r, 500));
     }
 
-    // ถ้าไม่มีแท็บใหม่หรือยังเป็น about:blank ให้ใช้ URL ปัจจุบัน
+    // ✅ หาแท็บใหม่ล่าสุด (ตัวท้ายสุด)
+    const newTargets = allTargets.filter(t => !beforeTargets.includes(t));
+    let finalPage = null;
+
+    if (newTargets.length > 0) {
+      const lastTarget = newTargets[newTargets.length - 1]; // เอาแท็บสุดท้าย
+      finalPage = await lastTarget.page();
+    }
+
+    let finalUrl = null;
+
+    if (finalPage) {
+      // ✅ รอจน URL ของแท็บสุดท้ายเปลี่ยนจาก about:blank
+      for (let i = 0; i < 20; i++) {
+        const url = finalPage.url();
+        if (url && url !== "about:blank") {
+          finalUrl = url;
+          break;
+        }
+        await new Promise(r => setTimeout(r, 500));
+      }
+
+      // fallback evaluate
+      if (!finalUrl || finalUrl === "about:blank") {
+        try {
+          await finalPage.waitForFunction(() => window.location.href !== "about:blank", { timeout: 5000 });
+          finalUrl = await finalPage.evaluate(() => window.location.href);
+        } catch {}
+      }
+    }
+
+    // ✅ fallback ถ้ายังไม่เจอ URL
     if (!finalUrl) finalUrl = await page.evaluate(() => window.location.href);
 
     await browser.close();
