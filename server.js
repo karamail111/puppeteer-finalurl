@@ -12,6 +12,7 @@ async function launchBrowser() {
     headless: true, // ถ้าอยากเห็น browser จริงๆ ให้เปลี่ยนเป็น false
     slowMo: 150,              // ให้เห็น step ชัดๆ
     defaultViewport: null,    // เต็มจอ
+    ignoreHTTPSErrors: true, // ป้องกันเว็บ HTTPS ที่ cert มีปัญหา
     args: [
       "--no-sandbox",                    // จำเป็นสำหรับ environment Railway
       "--disable-setuid-sandbox",
