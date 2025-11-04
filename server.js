@@ -85,61 +85,42 @@ app.get("/clickgame", async (req, res) => {
     await page.goto(requestUrl, { waitUntil: "networkidle2", timeout: 15000 });
 
     const selector = "img[src*='/image/gameIcon/PG/PG-SLOT-156.png']";
-    await page.waitForSelector(selector, { timeout: 8000 });
+    await page.waitForSelector(selector, { timeout: 10000 });
 
-    // 📍 เก็บ targets ก่อนคลิก
-    const targetsBefore = browser.targets();
+    // เก็บแท็บก่อนคลิก
+    const targetsBefore = browser.targets().filter(t => t.type() === "page");
 
-    // 📍 คลิก
+    // คลิก
     await page.click(selector);
 
-    // 📍 หาแท็บใหม่
-    let newTarget;
-    for (let i = 0; i < 20; i++) {
-      const after = browser.targets();
-      newTarget = after.find(
-        (t) => !targetsBefore.includes(t) && t.type() === "page"
-      );
-      if (newTarget) break;
-      await new Promise((r) => setTimeout(r, 500));
-    }
-
+    // รอ popup เกิดและ redirect เสร็จ
     let finalUrl = null;
-    if (newTarget) {
-      const newPage = await newTarget.page();
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 1000)); // รอทีละ 1 วิ
+      const targetsNow = browser.targets().filter(t => t.type() === "page");
 
-      // ✅ รอจน URL ไม่เป็น about:blank และไม่ว่าง
-      for (let i = 0; i < 20; i++) {
-        const url = newPage.url();
-        if (url && url !== "about:blank") {
-          finalUrl = url;
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 500)); // รอ redirect
-      }
-
-      // ✅ เผื่อ redirect ด้วย JS หลังโหลดเสร็จ
-      if (!finalUrl || finalUrl === "about:blank") {
+      const newOnes = targetsNow.filter(t => !targetsBefore.includes(t));
+      for (const t of newOnes) {
         try {
-          await newPage.waitForFunction(
-            () => window.location.href !== "about:blank",
-            { timeout: 5000 }
-          );
-          finalUrl = await newPage.evaluate(() => window.location.href);
+          const p = await t.page();
+          const url = await p.url();
+          if (url && url !== "about:blank" && url !== requestUrl) {
+            finalUrl = url;
+            break;
+          }
         } catch {}
       }
+      if (finalUrl) break;
     }
 
-    if (!finalUrl) {
-      // fallback ใช้ URL ปัจจุบัน
-      finalUrl = await page.evaluate(() => window.location.href);
-    }
+    // ถ้าไม่มีแท็บใหม่หรือยังเป็น about:blank ให้ใช้ URL ปัจจุบัน
+    if (!finalUrl) finalUrl = await page.evaluate(() => window.location.href);
 
     await browser.close();
     return res.json({ success: true, clickedUrl: finalUrl });
   } catch (err) {
     if (browser) await browser.close();
-    res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
