@@ -9,10 +9,17 @@ const PORT = process.env.PORT || 3000;
  */
 async function launchBrowser() {
   return await puppeteer.launch({
-    headless: "new", // ถ้าอยากเห็น browser จริงๆ ให้เปลี่ยนเป็น false
+    headless: true, // ถ้าอยากเห็น browser จริงๆ ให้เปลี่ยนเป็น false
     slowMo: 150,              // ให้เห็น step ชัดๆ
     defaultViewport: null,    // เต็มจอ
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-popup-blocking",
+      "--window-size=1280,800",
+    ],
   });
 }
 
