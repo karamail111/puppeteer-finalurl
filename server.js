@@ -87,18 +87,18 @@ app.get("/clickgame", async (req, res) => {
 
     // โหลดหน้าเว็บ (timeout 7 วิ)
     try {
-      await page.goto(requestUrl, { waitUntil: "networkidle2", timeout: 7000 });
+      await page.goto(requestUrl, { waitUntil: "networkidle2", timeout: 14000 });
     } catch (e) {
       console.error("Timeout loading page");
       await browser.close();
-      return res.json({ success: false, reason: "Page load timeout > 7s" });
+      return res.json({ success: false, reason: "Page load timeout > 14s" });
     }
 
     const selector = "img[src*='/image/gameIcon/PG/PG-SLOT-164.png']";
 
     // รอ selector ถ้าไม่เจอใน 7 วิ → false
     try {
-      await page.waitForSelector(selector, { timeout: 7000 });
+      await page.waitForSelector(selector, { timeout: 14000 });
     } catch (e) {
       console.error("Selector not found");
       await browser.close();
