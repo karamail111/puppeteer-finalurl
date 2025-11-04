@@ -94,7 +94,7 @@ app.get("/clickgame", async (req, res) => {
       return res.json({ success: false, reason: "Page load timeout > 7s" });
     }
 
-    const selector = "img[src*='/image/gameIcon/PG/PG-SLOT-156.png']";
+    const selector = "img[src*='/image/gameIcon/PG/PG-SLOT-164.png']";
 
     // รอ selector ถ้าไม่เจอใน 7 วิ → false
     try {
