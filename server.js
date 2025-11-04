@@ -93,7 +93,7 @@ app.get("/clickgame", async (req, res) => {
     console.log("🟢 เปิดหน้าแรก:", requestUrl);
     await page.goto(requestUrl, { waitUntil: "networkidle2", timeout: 15000 });
 
-    const selector = "img[src*='/image/gameIcon/PG/PG-SLOT-156.png']";
+    const selector = "img[src*='/image/gameIcon/PG/PG-SLOT-164.png']";
     await page.waitForSelector(selector, { timeout: 10000 });
 
     // เก็บแท็บก่อนคลิก
