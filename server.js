@@ -5,11 +5,11 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 /**
- * ✅ เปิดเบราว์เซอร์แบบปลอดภัย (แก้ bug service worker บน Railway)
+ * ✅ เปิดเบราว์เซอร์พร้อมปิด service worker ผ่าน CDP
  */
 async function launchBrowser() {
   return await puppeteer.launch({
-    headless: "new", // ใช้โหมด headless ใหม่ (จำเป็นสำหรับ Railway)
+    headless: "new",
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -25,28 +25,21 @@ async function launchBrowser() {
       "--disable-sync",
       "--disable-translate",
       "--disable-extensions",
-      "--disable-features=site-per-process,TranslateUI,BlinkGenPropertyTrees,InterestCohortAPI",
-      "--disable-blink-features=AutomationControlled",
       "--disable-component-update",
       "--disable-domain-reliability",
-      "--disable-software-rasterizer",
       "--disable-features=AudioServiceOutOfProcess",
       "--disable-features=IsolateOrigins,site-per-process",
       "--disable-site-isolation-trials",
       "--disable-notifications",
-      "--disable-features=HeadlessExperimentalFeatures,HeadlessFeature,ServiceWorkerServicification", // 🧩 ปิด Service Worker
+      "--disable-software-rasterizer",
+      "--disable-features=InterestCohortAPI,HeadlessExperimentalFeatures,HeadlessFeature,ServiceWorkerServicification",
     ],
   });
 }
 
-/**
- * /clickgame?request=https://example.com
- * เข้าเว็บ, หา tag <img> (เกม), คลิก, คืน url ล่าสุด
- */
 app.get("/clickgame", async (req, res) => {
   const requestUrl = req.query.request;
   console.log("requestUrl =", requestUrl);
-
   if (!requestUrl) return res.status(400).json({ error: "Missing request param" });
 
   let browser;
@@ -54,28 +47,24 @@ app.get("/clickgame", async (req, res) => {
     browser = await launchBrowser();
     const page = await browser.newPage();
 
-    // โหลดหน้าเว็บ (timeout 7 วิ)
+    // ✴️ ปิดการทำงานของ service worker ทั้งระบบผ่าน CDP
+    const client = await page.target().createCDPSession();
+    await client.send("ServiceWorker.disable");
+    await client.send("Network.setBypassServiceWorker", { bypass: true });
+
+    // โหลดหน้าเว็บ
     try {
-      await page.goto(requestUrl, { waitUntil: "networkidle2", timeout: 7000 });
+      await page.goto(requestUrl, { waitUntil: "networkidle2", timeout: 10000 });
     } catch (e) {
       console.error("Timeout loading page");
       await browser.close();
-      return res.json({ success: false, reason: "Page load timeout > 7s" });
+      return res.json({ success: false, reason: "Page load timeout > 10s" });
     }
-
-    // 🔧 ลบ service worker ที่มีอยู่
-    await page.evaluate(async () => {
-      if (navigator.serviceWorker) {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        for (const r of regs) await r.unregister();
-      }
-    });
 
     const selector = "img[src*='/image/gameIcon/PG/PG-SLOT-156.png']";
 
-    // รอ selector ถ้าไม่เจอใน 7 วิ → false
     try {
-      await page.waitForSelector(selector, { timeout: 7000 });
+      await page.waitForSelector(selector, { timeout: 8000 });
     } catch (e) {
       console.error("Selector not found");
       await browser.close();
@@ -84,35 +73,30 @@ app.get("/clickgame", async (req, res) => {
 
     // ✅ ดักแท็บใหม่
     let newTarget = null;
-    browser.on("targetcreated", (target) => {
-      newTarget = target;
-    });
+    browser.on("targetcreated", (target) => (newTarget = target));
 
-    // คลิกภาพ
     await page.click(selector);
 
-    // ✅ รอ URL ของแท็บใหม่ เปลี่ยนจาก about:blank
+    // ✅ รอ URL ของแท็บใหม่
     let finalUrl = null;
     for (let i = 0; i < 20; i++) {
-      if (newTarget && newTarget.url() && !newTarget.url().startsWith("about:")) {
+      if (newTarget && newTarget.url() && !newTarget.url().startsWith("about:") && !newTarget.url().endsWith(".js")) {
         finalUrl = newTarget.url();
         break;
       }
       await new Promise((r) => setTimeout(r, 500));
     }
 
-    // ถ้ายังไม่มี URL → พยายามเปิด page object
+    // fallback: อ่านจาก newPage
     if (!finalUrl && newTarget) {
       try {
         const newPage = await newTarget.page();
         if (newPage) {
-          await newPage.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 5000 }).catch(() => {});
+          await newPage.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 }).catch(() => {});
           finalUrl = newPage.url();
-
-          // fallback ดึงจาก frame
+          // ดึงจาก frames ถ้ายังไม่ได้
           if (!finalUrl || finalUrl.startsWith("about:") || finalUrl.endsWith(".js")) {
-            const frames = newPage.frames();
-            for (const f of frames) {
+            for (const f of newPage.frames()) {
               if (f.url() && !f.url().startsWith("about:") && !f.url().endsWith(".js")) {
                 finalUrl = f.url();
                 break;
@@ -126,7 +110,6 @@ app.get("/clickgame", async (req, res) => {
     }
 
     console.log("✅ finalUrl =", finalUrl);
-
     await browser.close();
 
     if (!finalUrl || finalUrl.startsWith("about:") || finalUrl.endsWith(".js")) {
@@ -141,11 +124,8 @@ app.get("/clickgame", async (req, res) => {
   }
 });
 
-/**
- * ทดสอบง่ายๆ: /ping
- */
 app.get("/ping", (req, res) => {
-  res.send("✅ Puppeteer service running normally.");
+  res.send("✅ Puppeteer service running fine.");
 });
 
 app.listen(PORT, () => {
