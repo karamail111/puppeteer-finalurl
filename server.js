@@ -112,60 +112,54 @@ app.get("/clickgame", async (req, res) => {
       return res.json({ success: false, reason: "Image not found" });
     }
 
-    // ✅ ดัก event tab ใหม่
-    const newPagePromise = new Promise((resolve) => {
-      browser.once("targetcreated", async (target) => {
-        const newPage = await target.page();
-        if (newPage) {
-          try {
-            await newPage.waitForNavigation({
-              waitUntil: "domcontentloaded",
-              timeout: 10000,
-            }).catch(() => {});
-          } catch (err) {
-            console.warn("waitForNavigation failed:", err.message);
-          }
-          resolve(newPage);
-        }
-      });
+    // ✅ ดักแท็บใหม่ (targetcreated + targetchanged)
+    let newTarget = null;
+    browser.on("targetcreated", (target) => {
+      newTarget = target;
     });
 
     // คลิกภาพ
     await page.click(selector);
 
-    // รอแท็บใหม่ (สูงสุด 9 วิ)
-    let newPage;
-    try {
-      newPage = await Promise.race([
-        newPagePromise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error("No new tab")), 9000)),
-      ]);
-    } catch (e) {
-      console.error("No new tab opened");
-      await browser.close();
-      return res.json({ success: false, reason: "No new tab opened" });
+    // ✅ รอให้แท็บใหม่เปลี่ยน URL จาก about:blank → จริง
+    let finalUrl = null;
+    for (let i = 0; i < 20; i++) {
+      if (newTarget && newTarget.url() && !newTarget.url().startsWith("about:")) {
+        finalUrl = newTarget.url();
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 500));
     }
 
-    // รอโหลดเล็กน้อยแล้วเอา URL
-    await newPage.bringToFront();
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    // ถ้ายังไม่มี ให้ลองเอา page จาก target
+    if (!finalUrl && newTarget) {
+      try {
+        const newPage = await newTarget.page();
+        await newPage.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 5000 }).catch(() => {});
+        finalUrl = newPage.url();
 
-    // ✅ ดึง finalUrl อย่างปลอดภัย
-    let finalUrl = newPage.url();
-    if (!finalUrl || finalUrl.startsWith("about:")) {
-      const frames = newPage.frames();
-      for (const f of frames) {
-        if (f.url() && !f.url().startsWith("about:")) {
-          finalUrl = f.url();
-          break;
+        // fallback ดึงจาก frame
+        if (!finalUrl || finalUrl.startsWith("about:")) {
+          const frames = newPage.frames();
+          for (const f of frames) {
+            if (f.url() && !f.url().startsWith("about:")) {
+              finalUrl = f.url();
+              break;
+            }
+          }
         }
+      } catch (e) {
+        console.warn("Cannot read newPage:", e.message);
       }
     }
 
     console.log("✅ finalUrl =", finalUrl);
 
-    // ปิด browser หลังทำเสร็จ
     await browser.close();
+
+    if (!finalUrl || finalUrl.startsWith("about:")) {
+      return res.json({ success: false, reason: "No valid URL found", finalUrl });
+    }
 
     return res.json({ success: true, clickedUrl: finalUrl });
   } catch (err) {
@@ -174,6 +168,7 @@ app.get("/clickgame", async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
 
 app.listen(PORT, () => {
   console.log(`✅ Server running at http://localhost:${PORT}`);
