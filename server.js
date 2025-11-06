@@ -5,28 +5,20 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 /**
- * Utility: เปิด browser (headless:true = เบื้องหลัง, false = โชว์)
+ * ✅ ฟังก์ชันเปิดเบราว์เซอร์ (รองรับ Railway / Docker)
  */
 async function launchBrowser() {
   return await puppeteer.launch({
-    headless: true, // ถ้าอยากเห็น browser จริงๆ ให้เปลี่ยนเป็น false
-    slowMo: 150,              // ให้เห็น step ชัดๆ
-    defaultViewport: null,    // เต็มจอ
-    ignoreHTTPSErrors: true, // ป้องกันเว็บ HTTPS ที่ cert มีปัญหา
+    headless: "new", // ใช้ headless โหมดใหม่ (แทน false ที่ใช้ GUI)
     args: [
-      "--no-sandbox",                    // จำเป็นสำหรับ environment Railway
+      "--no-sandbox",
       "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",         // ป้องกัน crash ใน memory จำกัด
-      "--disable-gpu",                   // ไม่มี GPU ใน container
-      "--disable-popup-blocking",        // อนุญาตให้ window.open() ทำงาน
-      "--enable-automation",
-      "--disable-blink-features=AutomationControlled", // ลดการ detect bot
-      "--window-size=1280,800",          // ให้ browser เริ่มขนาดเต็ม
-      "--start-maximized",
-      "--ignore-certificate-errors",     // ข้าม SSL warning
-      "--no-first-run",
-      "--no-zygote",
-      "--single-process",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-popup-blocking",
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
     ],
   });
 }
@@ -46,12 +38,12 @@ app.get("/geturl", async (req, res) => {
     const page = await browser.newPage();
     await page.goto(requestUrl, { waitUntil: "networkidle2", timeout: 60000 });
     const finalUrl = page.url();
-
     res.json({ finalUrl });
   } catch (err) {
+    console.error("Error in /geturl:", err.message);
     res.status(500).json({ error: err.message });
   } finally {
-    /*if (browser) await browser.close();*/
+    if (browser) await browser.close();
   }
 });
 
@@ -76,9 +68,9 @@ app.get("/getheader", async (req, res) => {
     });
 
     await page.goto(requestUrl, { waitUntil: "networkidle2", timeout: 60000 });
-
     res.json({ headers: responseHeaders });
   } catch (err) {
+    console.error("Error in /getheader:", err.message);
     res.status(500).json({ error: err.message });
   } finally {
     if (browser) await browser.close();
@@ -120,25 +112,33 @@ app.get("/clickgame", async (req, res) => {
       return res.json({ success: false, reason: "Image not found" });
     }
 
-    // ดัก event tab ใหม่
-    const newPagePromise = new Promise((resolve) =>
+    // ✅ ดัก event tab ใหม่
+    const newPagePromise = new Promise((resolve) => {
       browser.once("targetcreated", async (target) => {
         const newPage = await target.page();
-        resolve(newPage);
-      })
-    );
+        if (newPage) {
+          try {
+            await newPage.waitForNavigation({
+              waitUntil: "domcontentloaded",
+              timeout: 10000,
+            }).catch(() => {});
+          } catch (err) {
+            console.warn("waitForNavigation failed:", err.message);
+          }
+          resolve(newPage);
+        }
+      });
+    });
 
-    // คลิก
+    // คลิกภาพ
     await page.click(selector);
 
-    // รอแท็บใหม่ (9 วิ)
+    // รอแท็บใหม่ (สูงสุด 9 วิ)
     let newPage;
     try {
       newPage = await Promise.race([
         newPagePromise,
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("No new tab")), 9000)
-        ),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("No new tab")), 9000)),
       ]);
     } catch (e) {
       console.error("No new tab opened");
@@ -150,21 +150,31 @@ app.get("/clickgame", async (req, res) => {
     await newPage.bringToFront();
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    const finalUrl = newPage.url();
-    console.log("finalUrl =", finalUrl);
+    // ✅ ดึง finalUrl อย่างปลอดภัย
+    let finalUrl = newPage.url();
+    if (!finalUrl || finalUrl.startsWith("about:")) {
+      const frames = newPage.frames();
+      for (const f of frames) {
+        if (f.url() && !f.url().startsWith("about:")) {
+          finalUrl = f.url();
+          break;
+        }
+      }
+    }
 
-    // ✅ ปิด browser หลังทำเสร็จ
+    console.log("✅ finalUrl =", finalUrl);
+
+    // ปิด browser หลังทำเสร็จ
     await browser.close();
 
     return res.json({ success: true, clickedUrl: finalUrl });
   } catch (err) {
     console.error("Error on /clickgame:", err.message);
-    if (browser) await browser.close(); // ปิดทั้ง browser เวลา error
+    if (browser) await browser.close();
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`✅ Server running at http://localhost:${PORT}`);
 });
