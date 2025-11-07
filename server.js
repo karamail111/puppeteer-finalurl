@@ -61,7 +61,7 @@ app.get("/clickgame", async (req, res) => {
       return res.json({ success: false, reason: "Page load timeout > 10s" });
     }
 
-    const selector = "img[src*='/image/gameIcon/PG/PG-SLOT-156.png']";
+    const selector = "img[src*='/image/gameIcon/PG/PG-SLOT-164.png']";
 
     try {
       await page.waitForSelector(selector, { timeout: 8000 });
