@@ -61,7 +61,17 @@ app.get("/clickgame", async (req, res) => {
       return res.json({ success: false, reason: "Page load timeout > 10s" });
     }
 
-    const selector = "img[src*='/image/gameIcon/PG/PG-SLOT-164.png']";
+    // 🎯 รายการรูปที่ต้องการสุ่มกด
+    const images = [
+      "PG-SLOT-164.png",
+      "PG-SLOT-058.png",
+      "PG-SLOT-050.png"
+    ];
+    
+// 🎲 สุ่มเลือก 1 รูป
+    const randomImage = images[Math.floor(Math.random() * images.length)];
+    
+    const selector = "img[src*='/image/gameIcon/PG/${randomImage}']";
 
     try {
       await page.waitForSelector(selector, { timeout: 8000 });
