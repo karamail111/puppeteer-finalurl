@@ -71,7 +71,7 @@ app.get("/clickgame", async (req, res) => {
 // 🎲 สุ่มเลือก 1 รูป
     const randomImage = images[Math.floor(Math.random() * images.length)];
     
-    const selector = "img[src*='/image/gameIcon/PG/PG-SLOT-058.png']";
+    const selector = "img[src*='/image/gameIcon/PG/PG-SLOT-148.png']";
 
     try {
       await page.waitForSelector(selector, { timeout: 8000 });
